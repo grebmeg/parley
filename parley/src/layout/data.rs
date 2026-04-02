@@ -5,7 +5,7 @@ use crate::inline_box::InlineBox;
 use crate::layout::{ContentWidths, Glyph, LineMetrics, RunMetrics, Style};
 use crate::style::Brush;
 use crate::util::nearly_zero;
-use crate::{FontData, LineHeight, OverflowWrap, TextWrapMode};
+use crate::{FontData, IndentOptions, LineHeight, OverflowWrap, TextWrapMode};
 use core::ops::Range;
 
 use alloc::vec::Vec;
@@ -95,18 +95,20 @@ impl ClusterInfo {
         self.source_char.is_whitespace()
     }
 
-    #[cfg(test)]
+    /// Returns the cluster's original character.
     pub(crate) fn source_char(self) -> char {
         self.source_char
     }
 }
 
-fn to_whitespace(c: char) -> Whitespace {
+const fn to_whitespace(c: char) -> Whitespace {
+    const LINE_SEPARATOR: char = '\u{2028}';
+    const PARAGRAPH_SEPARATOR: char = '\u{2029}';
+
     match c {
         ' ' => Whitespace::Space,
         '\t' => Whitespace::Tab,
-        '\n' => Whitespace::Newline,
-        '\r' => Whitespace::Newline,
+        '\n' | '\r' | LINE_SEPARATOR | PARAGRAPH_SEPARATOR => Whitespace::Newline,
         '\u{00A0}' => Whitespace::NoBreakSpace,
         _ => Whitespace::None,
     }
@@ -119,6 +121,8 @@ pub(crate) struct RunData {
     pub(crate) font_index: usize,
     /// Font size.
     pub(crate) font_size: f32,
+    /// Font attributes, needed for accessibility.
+    pub(crate) font_attrs: fontique::Attributes,
     /// Synthesis for rendering (contains variation settings)
     pub(crate) synthesis: fontique::Synthesis,
     /// Range of normalized coordinates in the layout data.
@@ -164,6 +168,8 @@ pub(crate) struct LineData {
     pub(crate) max_advance: f32,
     /// Number of justified clusters on the line.
     pub(crate) num_spaces: usize,
+    /// Text indent applied to this line.
+    pub(crate) indent: f32,
 }
 
 impl LineData {
@@ -284,10 +290,18 @@ pub(crate) struct LayoutData<B: Brush> {
     pub(crate) line_items: Vec<LineItemData>,
 
     // Output of alignment
+    #[cfg(feature = "accesskit")]
+    /// Directly store the alignment if accessibility is enabled so we can
+    /// set the corresponding AccessKit property.
+    pub(crate) alignment: Option<super::Alignment>,
     /// Whether the layout is aligned with [`crate::Alignment::Justify`].
     pub(crate) is_aligned_justified: bool,
     /// The width the layout was aligned to.
     pub(crate) alignment_width: f32,
+    /// The text-indent amount in layout units.
+    pub(crate) indent_amount: f32,
+    /// Options controlling text-indent behavior (each-line, hanging).
+    pub(crate) indent_options: IndentOptions,
 }
 
 impl<B: Brush> Default for LayoutData<B> {
@@ -310,8 +324,12 @@ impl<B: Brush> Default for LayoutData<B> {
             glyphs: Vec::new(),
             lines: Vec::new(),
             line_items: Vec::new(),
+            #[cfg(feature = "accesskit")]
+            alignment: None,
             is_aligned_justified: false,
             alignment_width: 0.0,
+            indent_amount: 0.0,
+            indent_options: IndentOptions::default(),
         }
     }
 }
@@ -354,6 +372,7 @@ impl<B: Brush> LayoutData<B> {
         &mut self,
         font: FontData,
         font_size: f32,
+        font_attrs: fontique::Attributes,
         synthesis: fontique::Synthesis,
         glyph_buffer: &harfrust::GlyphBuffer,
         bidi_level: u8,
@@ -421,6 +440,8 @@ impl<B: Brush> LayoutData<B> {
                 strikethrough_offset,
                 strikethrough_size,
                 line_height,
+                x_height: metrics.x_height,
+                cap_height: metrics.cap_height,
             }
         };
 
@@ -429,6 +450,7 @@ impl<B: Brush> LayoutData<B> {
         let mut run = RunData {
             font_index,
             font_size,
+            font_attrs,
             synthesis,
             coords_range: coords_start..coords_end,
             text_range,
@@ -556,6 +578,7 @@ impl<B: Brush> LayoutData<B> {
                             min_width = min_width.max(running_min_width - trailing_whitespace);
                             running_min_width = 0.0;
                             if boundary == Boundary::Mandatory {
+                                max_width = max_width.max(running_max_width - trailing_whitespace);
                                 running_max_width = 0.0;
                             }
                         }
@@ -748,7 +771,8 @@ fn process_clusters<I: Iterator<Item = (usize, char)>>(
             id: glyph_info.glyph_id,
             style_index: char_info.1,
             x: (glyph_pos.x_offset as f32) * scale_factor,
-            y: (glyph_pos.y_offset as f32) * scale_factor,
+            // Convert from font space (Y-up) to layout space (Y-down)
+            y: -(glyph_pos.y_offset as f32) * scale_factor,
             advance: (glyph_pos.x_advance as f32) * scale_factor,
         };
         cluster_advance += glyph.advance;

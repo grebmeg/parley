@@ -10,7 +10,7 @@
     reason = "Deferred"
 )]
 
-use accesskit::{Node, Role, Tree, TreeUpdate};
+use accesskit::{Node, Role, Tree, TreeId, TreeUpdate};
 use anyhow::Result;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -45,6 +45,7 @@ impl ActiveRenderState<'_> {
     fn access_update(&mut self, editor: &mut text::Editor) {
         self.access_adapter.update_if_active(|| {
             let mut update = TreeUpdate {
+                tree_id: TreeId::ROOT,
                 nodes: vec![],
                 tree: (!self.sent_initial_access_update).then(|| Tree::new(WINDOW_ID)),
                 focus: TEXT_INPUT_ID,
@@ -63,6 +64,13 @@ impl ActiveRenderState<'_> {
                 y0: 0.0,
                 x1: size.width as _,
                 y1: size.height as _,
+            });
+            let rgba = text::BACKGROUND_COLOR.to_rgba8();
+            node.set_background_color(accesskit::Color {
+                red: rgba.r,
+                green: rgba.g,
+                blue: rgba.b,
+                alpha: rgba.a,
             });
             editor.accessibility(&mut update, &mut node);
             update.nodes.push((TEXT_INPUT_ID, node));
@@ -364,7 +372,7 @@ impl ApplicationHandler<accesskit_winit::Event> for SimpleVelloApp<'_> {
                 // Queue the texture to be presented on the surface.
                 surface_texture.present();
 
-                device_handle.device.poll(wgpu::Maintain::Poll);
+                device_handle.device.poll(wgpu::PollType::Poll).unwrap();
             }
             _ => {}
         }
@@ -381,7 +389,7 @@ impl ApplicationHandler<accesskit_winit::Event> for SimpleVelloApp<'_> {
                 render_state.access_update(&mut self.editor);
             }
             accesskit_winit::WindowEvent::ActionRequested(req) => {
-                if req.target == TEXT_INPUT_ID {
+                if req.target_node == TEXT_INPUT_ID {
                     self.editor.handle_accesskit_action_request(&req);
                     if self.last_drawn_generation != self.editor.generation() {
                         render_state.window.request_redraw();

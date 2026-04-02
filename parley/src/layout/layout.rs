@@ -8,6 +8,7 @@ use crate::layout::data::LayoutData;
 use crate::style::Brush;
 use core::cmp::Ordering;
 
+use crate::IndentOptions;
 use crate::layout::{
     ContentWidths, Style, alignment::Alignment, alignment::AlignmentOptions, line::Line,
     line_break::BreakLines,
@@ -96,7 +97,9 @@ impl<B: Brush> Layout<B> {
     }
 
     /// Returns an iterator over the lines in the layout.
-    pub fn lines(&self) -> impl Iterator<Item = Line<'_, B>> + '_ + Clone {
+    pub fn lines(
+        &self,
+    ) -> impl ExactSizeIterator<Item = Line<'_, B>> + DoubleEndedIterator + '_ + Clone {
         self.data
             .lines
             .iter()
@@ -106,6 +109,19 @@ impl<B: Brush> Layout<B> {
                 layout: self,
                 data,
             })
+    }
+
+    /// Sets the text-indent for the layout.
+    ///
+    /// The indent is applied as a margin on the start edge of indented lines, reducing the
+    /// available width for line breaking and offsetting content during alignment. Negative
+    /// values cause the line to protrude beyond the start edge.
+    ///
+    /// This must be called before [`Layout::break_all_lines`] or [`Layout::break_lines`],
+    /// and before [`Layout::align`].
+    pub fn set_text_indent(&mut self, amount: f32, options: IndentOptions) {
+        self.data.indent_amount = amount;
+        self.data.indent_options = options;
     }
 
     /// Returns line breaker to compute lines for the layout.

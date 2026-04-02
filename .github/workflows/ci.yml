@@ -3,7 +3,7 @@ env:
   # version like 1.70. Note that we only specify MAJOR.MINOR and not PATCH so that bugfixes still
   # come automatically. If the version specified here is no longer the latest stable version,
   # then please feel free to submit a PR that adjusts it along with the potential clippy fixes.
-  RUST_STABLE_VER: "1.92" # In quotes because otherwise (e.g.) 1.70 would be interpreted as 1.7
+  RUST_STABLE_VER: "1.93" # In quotes because otherwise (e.g.) 1.70 would be interpreted as 1.7
   # The purpose of checking with the minimum supported Rust toolchain is to detect its staleness.
   # If the compilation fails, then the version specified here needs to be bumped up to reality.
   # Be sure to also update the rust-version property in the workspace Cargo.toml file,
@@ -11,9 +11,9 @@ env:
   RUST_MIN_VER: "1.88"
   # List of packages that will be checked with the minimum supported Rust version.
   # This should be limited to packages that are intended for publishing.
-  RUST_MIN_VER_PKGS: "-p parley -p parley_core -p parley_draw -p fontique -p attributed_text"
+  RUST_MIN_VER_PKGS: "-p parley -p parley_core -p parley_data -p parlance -p fontique -p attributed_text"
   # List of features that depend on the standard library and will be excluded from no_std checks.
-  FEATURES_DEPENDING_ON_STD: "std,default,png,system"
+  FEATURES_DEPENDING_ON_STD: "std,default,png,system,vello_hybrid"
   # List of packages that can not target Wasm.
   NO_WASM_PKGS: "--exclude xtask --exclude parley_bench --exclude parley_data_gen"
   # List of packages that can not target Android.
@@ -103,8 +103,8 @@ jobs:
       - name: Run cargo rdme (parley_core)
         run: cargo rdme --check --heading-base-level=0 --workspace-project=parley_core
 
-      - name: Run cargo rdme (text_primitives)
-        run: cargo rdme --check --heading-base-level=0 --workspace-project=text_primitives
+      - name: Run cargo rdme (parlance)
+        run: cargo rdme --check --heading-base-level=0 --workspace-project=parlance
 
   clippy-stable:
     name: cargo clippy
@@ -396,7 +396,14 @@ jobs:
           save-if: ${{ github.event_name != 'merge_group' }}
 
       - name: regenerate unicode data
-        run: cargo run --locked -p parley_data_gen -- ./parley_data/src/generated
+        # Compression level 5 was chosen because:
+        # - Level 5 produced the greatest performance gain
+        # - Levels 5 through 9 produced the same output
+        # - Level 10 regressed performance but only reduced binary size by 128 bytes
+        run: cargo run --locked -p parley_data_gen -- ./parley_data/src/generated --compression=5
+
+      - name: format generated code
+        run: cargo fmt -p parley_data
 
       - name: check for differences
         run: git diff --exit-code

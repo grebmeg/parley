@@ -31,6 +31,13 @@ pub(crate) struct RangedStyle<B: Brush> {
     pub(crate) range: Range<usize>,
 }
 
+/// Run that references a style in a shared style table.
+#[derive(Debug, Clone)]
+pub(crate) struct StyleRun {
+    pub(crate) style_index: u16,
+    pub(crate) range: Range<usize>,
+}
+
 #[derive(Clone)]
 struct RangedProperty<B: Brush> {
     property: ResolvedProperty<B>,
@@ -489,6 +496,8 @@ impl<B: Brush> ResolvedStyle<B> {
             line_height: self.line_height,
             overflow_wrap: self.overflow_wrap,
             text_wrap_mode: self.text_wrap_mode,
+            #[cfg(feature = "accesskit")]
+            locale: self.locale,
         }
     }
 }
